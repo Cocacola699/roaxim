@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roaxim Maps Ultimate Prototype</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+    background: #111;
+}
+
+#map {
+    width: 100%;
+    height: 100%;
+}
+
+.topbar {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+
+    display: flex;
+    gap: 10px;
+
+    background: rgba(0,0,0,0.75);
+    padding: 12px;
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+.topbar input {
+    width: 260px;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    outline: none;
+    font-size: 15px;
+}
+
+.topbar button {
+    padding: 12px 16px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.panel {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    z-index: 9999;
+
+    width: 300px;
+
+    background: rgba(0,0,0,0.75);
+    color: white;
+
+    padding: 18px;
+    border-radius: 18px;
+
+    backdrop-filter: blur(10px);
+
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+.panel h2 {
+    margin-top: 0;
+}
+
+.status {
+    color: lime;
+    font-weight: bold;
+}
+
+#trafficLegend {
+    margin-top: 12px;
+    font-size: 14px;
+}
+
+.legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 5px;
+}
+
+.color {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+}
+
+.red { background: red; }
+.orange { background: orange; }
+.green { background: limegreen; }
+
+</style>
+</head>
+<body>
+
+<div class="topbar">
+    <input type="text" id="searchInput" placeholder="Search any place...">
+    <button onclick="searchLocation()">Search</button>
+    <button onclick="enableGPS()">Enable GPS</button>
+</div>
+
+<div class="panel">
+    <h2>🌍 Roaxim Maps</h2>
+
+    <p class="status" id="gpsStatus">GPS: Waiting...</p>
+
+    <p id="distanceText">Distance: --</p>
+    <p id="timeText">ETA: --</p>
+
+    <div id="trafficLegend">
+        <strong>Traffic</strong>
+
+        <div class="legend">
+            <div class="color green"></div>
+            Light Traffic
+        </div>
+
+        <div class="legend">
+            <div class="color orange"></div>
+            Medium Traffic
+        </div>
+
+        <div class="legend">
+            <div class="color red"></div>
+            Heavy Traffic
+        </div>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+
+const map = L.map('map').setView([20,0], 3);
+
+L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19
+}
+).addTo(map);
+
+let userMarker = null;
+let routeLine = null;
+let userLat = null;
+let userLon = null;
+
+// ======================
+// ENABLE GPS
+// ======================
+
+function enableGPS() {
+
+    if (!navigator.geolocation) {
+        alert("Geolocation not supported.");
+        return;
+    }
+
+    document.getElementById("gpsStatus").innerText = "GPS: Connecting...";
+
+    navigator.geolocation.watchPosition(
+
+        (position) => {
+
+            userLat = position.coords.latitude;
+            userLon = position.coords.longitude;
+
+            document.getElementById("gpsStatus").innerText =
+                "GPS: Connected";
+
+            if (userMarker) {
+                map.removeLayer(userMarker);
+            }
+
+            userMarker = L.marker([userLat, userLon])
+                .addTo(map)
+                .bindPopup("📍 Your Live Location")
+                .openPopup();
+
+            map.setView([userLat, userLon], 14);
+
+        },
+
+        (error) => {
+
+            console.error(error);
+
+            document.getElementById("gpsStatus").innerText =
+                "GPS: Permission Denied";
+
+            alert(
+                "Location failed.\n\nIMPORTANT:\nOpen this using VS Code Live Server or a real website.\nBrowser GPS often fails on local HTML files."
+            );
+        },
+
+        {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 10000
+        }
+    );
+}
+
+// ======================
+// SEARCH
+// ======================
+
+async function searchLocation() {
+
+    const query =
+        document.getElementById("searchInput").value;
+
+    if (!query) return;
+
+    const url =
+        `https://nominatim.openstreetmap.org/search?format=json&q=${query}`;
+
+    const response = await fetch(url);
+
+    const data = await response.json();
+
+    if (data.length === 0) {
+        alert("Location not found");
+        return;
+    }
+
+    const lat = parseFloat(data[0].lat);
+    const lon = parseFloat(data[0].lon);
+
+    L.marker([lat, lon])
+        .addTo(map)
+        .bindPopup(query)
+        .openPopup();
+
+    map.setView([lat, lon], 12);
+
+    if (userLat && userLon) {
+        createRoute(userLon, userLat, lon, lat);
+    }
+}
+
+// ======================
+// CLICK ROUTING
+// ======================
+
+map.on("click", function(e){
+
+    const lat = e.latlng.lat;
+    const lon = e.latlng.lng;
+
+    L.marker([lat, lon])
+        .addTo(map)
+        .bindPopup("Destination")
+        .openPopup();
+
+    if(userLat && userLon){
+        createRoute(userLon, userLat, lon, lat);
+    } else {
+        alert("Enable GPS first.");
+    }
+
+});
+
+// ======================
+// ROUTING
+// ======================
+
+async function createRoute(startLon, startLat, endLon, endLat) {
+
+    const url =
+`https://router.project-osrm.org/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson`;
+
+    const response = await fetch(url);
+
+    const data = await response.json();
+
+    if (!data.routes || data.routes.length === 0) {
+        alert("Route not found");
+        return;
+    }
+
+    const route = data.routes[0];
+
+    const coordinates =
+        route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+    if(routeLine){
+        map.removeLayer(routeLine);
+    }
+
+    // Fake traffic simulation
+    const trafficColors = ["limegreen", "orange", "red"];
+    const randomTraffic =
+        trafficColors[Math.floor(Math.random() * trafficColors.length)];
+
+    routeLine = L.polyline(coordinates, {
+        color: randomTraffic,
+        weight: 7
+    }).addTo(map);
+
+    map.fitBounds(routeLine.getBounds());
+
+    const distanceKm =
+        (route.distance / 1000).toFixed(1);
+
+    const durationMin =
+        Math.round(route.duration / 60);
+
+    document.getElementById("distanceText").innerText =
+        `Distance: ${distanceKm} km`;
+
+    document.getElementById("timeText").innerText =
+        `ETA: ${durationMin} mins`;
+}
+
+</script>
+</body>
+</html>
